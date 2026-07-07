@@ -3,12 +3,14 @@
 
 pipeline {
 
+
     agent {
         label 'build-agent-02'
     }
 
 
     environment {
+
 
         APP_NAME = "sample-app-jenkins-pipeline"
 
@@ -24,75 +26,110 @@ pipeline {
 
         ENVIRONMENT = "DEV"
 
+
     }
+
 
 
     stages {
 
 
+
         stage('Generate Image Tag') {
+
 
             steps {
 
+
                 echo "===================================="
+
                 echo "Application : ${APP_NAME}"
+
                 echo "Image       : ${IMAGE_NAME}"
+
                 echo "Environment : ${ENVIRONMENT}"
+
                 echo "===================================="
+
 
             }
 
+
         }
+
 
 
 
         stage('Checkout SCM') {
 
+
             steps {
 
-                echo "Checking out source code"
+
+                echo "Checking out source code from GitHub"
+
 
                 checkout scm
 
+
             }
 
+
         }
+
 
 
 
         stage('Shared Library Test') {
 
+
             steps {
 
-                echo "Calling Shared Library"
+
+                echo "Calling Jenkins Shared Library"
+
 
                 helloWorld()
 
+
             }
+
 
         }
 
 
 
+
         stage('SonarQube Analysis') {
+
 
             steps {
 
+
                 echo "Starting SonarQube Analysis"
+
 
 
                 withSonarQubeEnv('sonarqube') {
 
 
+
                     script {
+
 
 
                         def scannerHome = tool 'sonar-scanner'
 
 
+
                         sh """
 
-                        ${scannerHome}/bin/sonar-scanner
+
+                        ${scannerHome}/bin/sonar-scanner \
+                        -Dsonar.projectKey=sample-app-jenkins-pipeline \
+                        -Dsonar.projectName=sample-app-jenkins-pipeline \
+                        -Dsonar.sources=.
+
 
                         """
 
@@ -100,25 +137,30 @@ pipeline {
                     }
 
 
+
                 }
 
 
             }
+
 
         }
 
 
 
 
+
         stage('Quality Gate') {
+
 
             steps {
 
 
-                echo "Waiting for SonarQube Quality Gate"
+                echo "Checking SonarQube Quality Gate"
 
 
-                timeout(time: 5, unit: 'MINUTES') {
+
+                timeout(time: 10, unit: 'MINUTES') {
 
 
                     waitForQualityGate abortPipeline: true
@@ -138,21 +180,26 @@ pipeline {
 
         stage('Docker Build') {
 
+
             steps {
 
 
                 echo "Building Docker Image"
 
 
+
                 sh """
+
 
                 docker build \
                 -t ${IMAGE_NAME} .
+
 
                 """
 
 
             }
+
 
         }
 
@@ -162,23 +209,28 @@ pipeline {
 
         stage('Trivy Scan') {
 
+
             steps {
 
 
-                echo "Scanning Docker Image"
+                echo "Scanning Docker Image using Trivy"
+
 
 
                 sh """
+
 
                 trivy image \
                 --severity HIGH,CRITICAL \
                 --exit-code 0 \
                 ${IMAGE_NAME}
 
+
                 """
 
 
             }
+
 
         }
 
@@ -188,15 +240,19 @@ pipeline {
 
         stage('Docker Push') {
 
+
             steps {
 
 
                 echo "Pushing Image to Docker Hub"
 
 
+
                 withCredentials([
 
+
                     usernamePassword(
+
 
                         credentialsId: 'dockerhub-credentials',
 
@@ -204,28 +260,37 @@ pipeline {
 
                         passwordVariable: 'DOCKER_PASS'
 
+
                     )
+
 
                 ]) {
 
 
+
                     sh '''
+
 
                     echo $DOCKER_PASS | docker login \
                     -u $DOCKER_USER \
                     --password-stdin
 
 
+
                     docker push ${IMAGE_NAME}
+
 
 
                     '''
 
 
+
                 }
 
 
+
             }
+
 
         }
 
@@ -235,43 +300,53 @@ pipeline {
 
         stage('Deploy DEV') {
 
+
             steps {
 
 
                 echo "Deploying Application to DEV"
 
 
+
                 sh """
 
+
                 kubectl apply -f kubernetes/dev/
+
 
                 """
 
 
             }
 
+
         }
+
 
 
 
 
         stage('Manual Approval') {
 
+
             steps {
 
 
-                input message: 'Deploy to Production?', 
-                ok: 'Approve'
+                input message: 'Deploy application to Production?', 
+                ok: 'Approve Deployment'
 
 
             }
+
 
         }
 
 
 
 
+
         stage('Deploy PROD') {
+
 
             steps {
 
@@ -279,16 +354,21 @@ pipeline {
                 echo "Deploying Application to PROD"
 
 
+
                 sh """
 
+
                 kubectl apply -f kubernetes/prod/
+
 
                 """
 
 
             }
 
+
         }
+
 
 
 
@@ -300,9 +380,12 @@ pipeline {
     post {
 
 
+
         success {
 
+
             echo """
+
 
             ====================================
             PIPELINE SUCCESSFUL
@@ -315,15 +398,21 @@ pipeline {
 
             ====================================
 
+
             """
+
 
         }
 
 
 
+
+
         failure {
 
+
             echo """
+
 
             ====================================
             PIPELINE FAILED
@@ -332,12 +421,16 @@ pipeline {
 
             ====================================
 
+
             """
+
 
         }
 
 
+
     }
+
 
 
 }
