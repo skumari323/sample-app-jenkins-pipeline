@@ -18,12 +18,6 @@ pipeline {
     }
 
 
-    tools {
-
-        sonarRunner 'sonar-scanner'
-
-    }
-
 
     environment {
 
@@ -68,6 +62,7 @@ pipeline {
 
 
                 echo """
+
 =========================================
 
 Application : ${APP_NAME}
@@ -79,6 +74,7 @@ Image Tag   : ${IMAGE_TAG}
 Image Name  : ${IMAGE_NAME}
 
 =========================================
+
 """
 
 
@@ -96,7 +92,7 @@ Image Name  : ${IMAGE_NAME}
             steps {
 
 
-                echo "Checking out source code"
+                echo "Checking out source code from GitHub"
 
 
                 checkout scm
@@ -136,17 +132,18 @@ Image Name  : ${IMAGE_NAME}
             steps {
 
 
-                echo "Starting SonarQube Analysis"
+                echo "Running SonarQube Analysis"
+
 
 
                 withSonarQubeEnv('sonarqube') {
 
 
-                    sh """
+                    sh '''
 
                     sonar-scanner
 
-                    """
+                    '''
 
 
                 }
@@ -196,6 +193,7 @@ Image Name  : ${IMAGE_NAME}
                 echo "Building Docker Image"
 
 
+
                 sh """
 
                 docker build \
@@ -219,7 +217,7 @@ Image Name  : ${IMAGE_NAME}
             steps {
 
 
-                echo "Scanning Docker Image"
+                echo "Running Trivy Security Scan"
 
 
 
@@ -289,7 +287,6 @@ Image Name  : ${IMAGE_NAME}
                     docker logout
 
 
-
                     """
 
 
@@ -324,6 +321,7 @@ Image Name  : ${IMAGE_NAME}
 
                 helm upgrade --install ${HELM_RELEASE} ./helm \
                 --namespace ${DEV_NAMESPACE} \
+                --create-namespace \
                 --set image.repository=${DOCKER_REPO} \
                 --set image.tag=${IMAGE_TAG}
 
@@ -346,8 +344,14 @@ Image Name  : ${IMAGE_NAME}
             steps {
 
 
-                input message: 'Deploy application to PROD?', 
-                      ok: 'Deploy'
+                input(
+
+                    message: 'Deploy application to PROD?',
+
+                    ok: 'Approve Deployment'
+
+
+                )
 
 
             }
@@ -378,6 +382,7 @@ Image Name  : ${IMAGE_NAME}
 
                 helm upgrade --install ${HELM_RELEASE} ./helm \
                 --namespace ${PROD_NAMESPACE} \
+                --create-namespace \
                 --set image.repository=${DOCKER_REPO} \
                 --set image.tag=${IMAGE_TAG}
 
@@ -418,7 +423,8 @@ Docker Image:
 ${IMAGE_NAME}
 
 
-Deployment Completed
+Deployment:
+DEV + PROD
 
 
 =========================================
@@ -427,6 +433,7 @@ Deployment Completed
 
 
         }
+
 
 
 
@@ -439,7 +446,8 @@ Deployment Completed
 
 PIPELINE FAILED
 
-Check Jenkins Console Output
+Check Jenkins Console Logs
+
 
 =========================================
 
@@ -449,7 +457,9 @@ Check Jenkins Console Output
         }
 
 
+
     }
+
 
 
 }
