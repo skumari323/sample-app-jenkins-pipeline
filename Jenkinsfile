@@ -1,132 +1,127 @@
 @Library('jenkins-shared-library') _
 
-
 pipeline {
-
 
     agent {
         label 'build-agent-02'
     }
 
+    options {
+        skipDefaultCheckout(true)
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    tools {
+        sonarQubeScanner 'sonar-scanner'
+    }
 
     environment {
 
+        // ==========================
+        // Application
+        // ==========================
 
-        // Application Name
         APP_NAME = "sample-app-jenkins-pipeline"
 
+        // ==========================
+        // Docker
+        // ==========================
 
-        // Docker Hub Repository
         DOCKER_REPO = "snehaldesai241/sample-app-jenkins-pipeline"
 
-
-        // Jenkins automatically generates this
         IMAGE_TAG = "${BUILD_NUMBER}"
 
-
-        // Complete Docker Image Name
         IMAGE_NAME = "${DOCKER_REPO}:${IMAGE_TAG}"
 
+        // ==========================
+        // Kubernetes
+        // ==========================
 
-        // Kubernetes namespaces (used later)
         DEV_NAMESPACE = "dev"
 
         PROD_NAMESPACE = "prod"
 
-
-        // Current environment
-        ENVIRONMENT = "DEV"
+        HELM_RELEASE = "sample-app"
 
     }
 
-
-
     stages {
-
-
 
         stage('Generate Image Tag') {
 
-
             steps {
 
-
-                echo "===================================="
-
-                echo "Application Name : ${APP_NAME}"
-
-                echo "Docker Repository: ${DOCKER_REPO}"
-
-                echo "Image Tag        : ${IMAGE_TAG}"
-
-                echo "Docker Image     : ${IMAGE_NAME}"
-
-                echo "Environment      : ${ENVIRONMENT}"
-
-                echo "===================================="
-
+                echo "========================================="
+                echo "Application : ${APP_NAME}"
+                echo "Docker Repo : ${DOCKER_REPO}"
+                echo "Image Tag   : ${IMAGE_TAG}"
+                echo "Image Name  : ${IMAGE_NAME}"
+                echo "========================================="
 
             }
 
         }
 
-
-
-
-
-        stage('Checkout Code') {
-
+        stage('Checkout SCM') {
 
             steps {
 
-
-                echo "Checking out source code from GitHub"
-
+                echo "Checking out source code..."
 
                 checkout scm
 
-
             }
-
 
         }
 
-
-
-
-
-
-        stage('Shared Library Test') {
-
+        stage('Shared Library') {
 
             steps {
 
-
-                echo "Calling Jenkins Shared Library"
-
+                echo "Executing Shared Library..."
 
                 helloWorld()
 
-
             }
-
 
         }
 
-
-
-
-
-
-
-        stage('Docker Build') {
-
+        stage('SonarQube Analysis') {
 
             steps {
 
+                withSonarQubeEnv('sonarqube') {
 
-                echo "Building Docker Image"
+                    sh '''
+                        sonar-scanner
+                    '''
 
+                }
+
+            }
+
+        }
+
+        stage('Quality Gate') {
+
+            steps {
+
+                timeout(time: 5, unit: 'MINUTES') {
+
+                    waitForQualityGate abortPipeline: true
+
+                }
+
+            }
+
+        }
+
+        stage('Docker Build') {
+
+            steps {
+
+                echo "Building Docker Image..."
 
                 sh """
 
@@ -135,27 +130,36 @@ pipeline {
 
                 """
 
-
             }
-
 
         }
 
-
-
-
-
-
-
-        stage('Docker Push') {
-
+        stage('Trivy Image Scan') {
 
             steps {
 
+                echo "Scanning Docker Image..."
 
-                echo "Pushing Docker Image to Docker Hub"
+                sh """
 
+                trivy image \
+                    --scanners vuln \
+                    --timeout 15m \
+                    --severity HIGH,CRITICAL \
+                    --exit-code 1 \
+                    ${IMAGE_NAME}
 
+                """
+
+            }
+
+        }
+
+        stage('Docker Push') {
+
+            steps {
+
+                echo "Pushing Docker Image..."
 
                 withCredentials([
 
@@ -171,83 +175,138 @@ pipeline {
 
                 ]) {
 
-
-
                     sh '''
 
-                    echo $DOCKER_PASS | docker login \
-                    -u $DOCKER_USER \
-                    --password-stdin
+                        echo "$DOCKER_PASS" | docker login \
+                        -u "$DOCKER_USER" \
+                        --password-stdin
 
+                        docker push '"${IMAGE_NAME}"'
 
-
-                    docker push ${IMAGE_NAME}
-
+                        docker logout
 
                     '''
 
-
                 }
-
 
             }
 
+        }
+
+        stage('Deploy to DEV') {
+
+            steps {
+
+                echo "Deploying to DEV Namespace..."
+
+                sh """
+
+                kubectl create namespace ${DEV_NAMESPACE} \
+                --dry-run=client -o yaml | kubectl apply -f -
+
+                helm upgrade --install ${HELM_RELEASE} ./helm \
+                    --namespace ${DEV_NAMESPACE} \
+                    --create-namespace \
+                    --set image.repository=${DOCKER_REPO} \
+                    --set image.tag=${IMAGE_TAG}
+
+                """
+
+            }
 
         }
 
+        stage('Manual Approval') {
 
+            steps {
+
+                input(
+
+                    message: 'Deploy to Production?',
+
+                    ok: 'Deploy'
+
+                )
+
+            }
+
+        }
+
+        stage('Deploy to PROD') {
+
+            steps {
+
+                echo "Deploying to Production..."
+
+                sh """
+
+                kubectl create namespace ${PROD_NAMESPACE} \
+                --dry-run=client -o yaml | kubectl apply -f -
+
+                helm upgrade --install ${HELM_RELEASE} ./helm \
+                    --namespace ${PROD_NAMESPACE} \
+                    --create-namespace \
+                    --set image.repository=${DOCKER_REPO} \
+                    --set image.tag=${IMAGE_TAG}
+
+                """
+
+            }
+
+        }
 
     }
-
-
-
-
 
     post {
 
+        always {
+
+            cleanWs()
+
+        }
 
         success {
 
-
             echo """
 
-            ====================================
-            PIPELINE SUCCESSFUL
+==================================================
 
-            Application:
-            ${APP_NAME}
+PIPELINE SUCCESSFUL
 
-            Image:
-            ${IMAGE_NAME}
+Application :
+${APP_NAME}
 
-            ====================================
+Docker Image :
+${IMAGE_NAME}
 
-            """
+DEV Namespace :
+${DEV_NAMESPACE}
 
+PROD Namespace :
+${PROD_NAMESPACE}
+
+==================================================
+
+"""
 
         }
-
-
 
         failure {
 
-
             echo """
 
-            ====================================
-            PIPELINE FAILED
+==================================================
 
-            Check Jenkins logs
+PIPELINE FAILED
 
-            ====================================
+Please check Jenkins Console Output.
 
-            """
+==================================================
 
+"""
 
         }
 
-
     }
-
 
 }
