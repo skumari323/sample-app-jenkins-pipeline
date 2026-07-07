@@ -3,12 +3,14 @@
 
 pipeline {
 
+
     agent {
         label 'build-agent-02'
     }
 
 
     environment {
+
 
         // Application Name
         APP_NAME = "sample-app-jenkins-pipeline"
@@ -18,73 +20,187 @@ pipeline {
         DOCKER_REPO = "snehaldesai241/sample-app-jenkins-pipeline"
 
 
-        // Dynamic image tag from Jenkins build number
+        // Jenkins automatically generates this
         IMAGE_TAG = "${BUILD_NUMBER}"
 
 
-        // Complete Docker image name
+        // Complete Docker Image Name
         IMAGE_NAME = "${DOCKER_REPO}:${IMAGE_TAG}"
 
 
-        // Kubernetes namespaces
+        // Kubernetes namespaces (used later)
         DEV_NAMESPACE = "dev"
 
         PROD_NAMESPACE = "prod"
 
 
-        // Environment name
+        // Current environment
         ENVIRONMENT = "DEV"
 
     }
 
 
+
     stages {
+
 
 
         stage('Generate Image Tag') {
 
+
             steps {
 
-                echo "================================="
+
+                echo "===================================="
+
                 echo "Application Name : ${APP_NAME}"
+
                 echo "Docker Repository: ${DOCKER_REPO}"
+
                 echo "Image Tag        : ${IMAGE_TAG}"
-                echo "Full Image Name  : ${IMAGE_NAME}"
+
+                echo "Docker Image     : ${IMAGE_NAME}"
+
                 echo "Environment      : ${ENVIRONMENT}"
-                echo "================================="
+
+                echo "===================================="
+
 
             }
 
         }
+
+
+
 
 
         stage('Checkout Code') {
 
+
             steps {
 
-                echo "Checking out source code..."
+
+                echo "Checking out source code from GitHub"
+
 
                 checkout scm
 
+
             }
 
+
         }
+
+
+
+
 
 
         stage('Shared Library Test') {
 
+
             steps {
 
-                echo "Calling Shared Library Function..."
+
+                echo "Calling Jenkins Shared Library"
+
 
                 helloWorld()
 
+
             }
+
 
         }
 
 
+
+
+
+
+
+        stage('Docker Build') {
+
+
+            steps {
+
+
+                echo "Building Docker Image"
+
+
+                sh """
+
+                docker build \
+                -t ${IMAGE_NAME} .
+
+                """
+
+
+            }
+
+
+        }
+
+
+
+
+
+
+
+        stage('Docker Push') {
+
+
+            steps {
+
+
+                echo "Pushing Docker Image to Docker Hub"
+
+
+
+                withCredentials([
+
+                    usernamePassword(
+
+                        credentialsId: 'dockerhub-credentials',
+
+                        usernameVariable: 'DOCKER_USER',
+
+                        passwordVariable: 'DOCKER_PASS'
+
+                    )
+
+                ]) {
+
+
+
+                    sh '''
+
+                    echo $DOCKER_PASS | docker login \
+                    -u $DOCKER_USER \
+                    --password-stdin
+
+
+
+                    docker push ${IMAGE_NAME}
+
+
+                    '''
+
+
+                }
+
+
+            }
+
+
+        }
+
+
+
     }
+
+
+
 
 
     post {
@@ -92,18 +208,41 @@ pipeline {
 
         success {
 
-            echo "================================="
-            echo "Pipeline completed successfully"
-            echo "================================="
+
+            echo """
+
+            ====================================
+            PIPELINE SUCCESSFUL
+
+            Application:
+            ${APP_NAME}
+
+            Image:
+            ${IMAGE_NAME}
+
+            ====================================
+
+            """
+
 
         }
 
 
+
         failure {
 
-            echo "================================="
-            echo "Pipeline failed"
-            echo "================================="
+
+            echo """
+
+            ====================================
+            PIPELINE FAILED
+
+            Check Jenkins logs
+
+            ====================================
+
+            """
+
 
         }
 
